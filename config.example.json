@@ -1,0 +1,18 @@
+{
+  "telegram_token": "YOUR_BOT_TOKEN_FROM_BOTFATHER",
+  "backend_command": "cat",
+  "working_directory": "",
+  "user_allowlist_required": false,
+  "user_allowlist": [],
+  "group_allowlist_required": false,
+  "group_allowlist": [],
+  "environment": {},
+  "drop_environment": false,
+  "enable_attachments": false,
+  "attachment_path": "",
+  "attachment_method": "xml",
+  "attachment_path_chat_prefix": "",
+  "attachment_path_chatid_suffix": false,
+  "telegram_chat_type_env": "",
+  "telegram_chat_id_env": ""
+}
