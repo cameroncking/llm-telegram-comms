@@ -104,6 +104,12 @@ func (b *Bot) handleMessage(ctx context.Context, tgBot *bot.Bot, update *models.
 
 	log.Printf("Processing message from user %d in chat %d: %s", userID, chatID, truncate(msgText, 50))
 
+	// Send typing indicator
+	b.sendTypingAction(ctx, tgBot, chatID)
+
+	// Start time for logging
+	startTime := time.Now()
+
 	// Build extra args for datasette_llm method
 	var extraArgs []string
 	if b.cfg.EnableAttachments && b.cfg.AttachmentMethod == "datasette_llm" && len(savedAttachments) > 0 {
@@ -124,11 +130,17 @@ func (b *Bot) handleMessage(ctx context.Context, tgBot *bot.Bot, update *models.
 	}
 
 	response, err := b.backend.Execute(ctx, msgText, execOpts, extraArgs...)
+	elapsed := time.Since(startTime)
+
 	if err != nil {
-		log.Printf("Backend error: %v", err)
+		log.Printf("Backend error (after %v): %v", elapsed, err)
 		response = fmt.Sprintf("Error: %v", err)
+	} else {
+		log.Printf("Backend completed in %v", elapsed)
 	}
 
+	// Trim whitespace and check for empty response
+	response = strings.TrimSpace(response)
 	if response == "" {
 		response = "(empty response)"
 	}
@@ -176,6 +188,16 @@ func truncate(s string, maxLen int) string {
 		return s
 	}
 	return s[:maxLen] + "..."
+}
+
+func (b *Bot) sendTypingAction(ctx context.Context, tgBot *bot.Bot, chatID int64) {
+	_, err := tgBot.SendChatAction(ctx, &bot.SendChatActionParams{
+		ChatID: chatID,
+		Action: models.ChatActionTyping,
+	})
+	if err != nil {
+		log.Printf("Failed to send typing action: %v", err)
+	}
 }
 
 func (b *Bot) handleAttachments(ctx context.Context, tgBot *bot.Bot, msg *models.Message, chatID int64) []string {

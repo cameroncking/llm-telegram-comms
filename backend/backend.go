@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"strings"
+	"time"
 
 	"github.com/exedev/llm-telegram-comms/config"
 )
@@ -25,6 +26,14 @@ type ExecOptions struct {
 }
 
 func (b *Backend) Execute(ctx context.Context, input string, opts *ExecOptions, extraArgs ...string) (string, error) {
+	// Apply timeout to the context
+	timeoutSecs := b.cfg.GetBackendTimeout()
+	if timeoutSecs > 0 {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, time.Duration(timeoutSecs)*time.Second)
+		defer cancel()
+	}
+
 	command := b.cfg.BackendCommand
 	if len(extraArgs) > 0 {
 		aggressive := b.cfg.IsAggressiveShellEscape()
@@ -51,6 +60,10 @@ func (b *Backend) Execute(ctx context.Context, input string, opts *ExecOptions, 
 
 	err := cmd.Run()
 	if err != nil {
+		// Check if it was a timeout
+		if ctx.Err() == context.DeadlineExceeded {
+			return "", fmt.Errorf("command timed out after %d seconds", b.cfg.GetBackendTimeout())
+		}
 		if stderr.Len() > 0 {
 			return "", fmt.Errorf("command failed: %w\nstderr: %s", err, stderr.String())
 		}

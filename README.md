@@ -116,6 +116,7 @@ Create a `config.json` file (see `config.example.json`):
 | `aggressive_shell_escape` | bool | `true` | When true, only allow safe characters in filenames passed to shell |
 | `telegram_chat_type_env` | string | `""` | Environment variable name to pass chat type (`user` or `group`) to backend |
 | `telegram_chat_id_env` | string | `""` | Environment variable name to pass chat ID to backend |
+| `backend_timeout_seconds` | int | `180` | Maximum time in seconds to wait for backend command (0 = no timeout) |
 
 ## How It Works
 

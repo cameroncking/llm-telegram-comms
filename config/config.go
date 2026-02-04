@@ -24,6 +24,7 @@ type Config struct {
 	AggressiveShellEscape    *bool             `json:"aggressive_shell_escape"`
 	TelegramChatTypeEnv      string            `json:"telegram_chat_type_env"`
 	TelegramChatIDEnv        string            `json:"telegram_chat_id_env"`
+	BackendTimeoutSeconds    *int              `json:"backend_timeout_seconds"`
 }
 
 func (c *Config) IsAggressiveShellEscape() bool {
@@ -31,6 +32,13 @@ func (c *Config) IsAggressiveShellEscape() bool {
 		return true // default true
 	}
 	return *c.AggressiveShellEscape
+}
+
+func (c *Config) GetBackendTimeout() int {
+	if c.BackendTimeoutSeconds == nil {
+		return 180 // default 3 minutes
+	}
+	return *c.BackendTimeoutSeconds
 }
 
 func Load(path string) (*Config, error) {
