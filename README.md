@@ -117,8 +117,175 @@ Create a `config.json` file (see `config.example.json`):
 | `telegram_chat_type_env` | string | `""` | Environment variable name to pass chat type (`user` or `group`) to backend |
 | `telegram_chat_id_env` | string | `""` | Environment variable name to pass chat ID to backend |
 | `backend_timeout_seconds` | int | `180` | Maximum time in seconds to wait for backend command (0 = no timeout) |
+| `strip_prefix` | bool | `true` | When true, strip matched prefix from message before passing to backend |
+| `message_prefix_overrides` | map | `{}` | Per-prefix configuration overrides (see below) |
+
+## Message Prefix Overrides
+
+The `message_prefix_overrides` feature allows different backend configurations based on message prefixes. This is useful for routing different types of requests to different backends or models.
+
+### Basic Example
+
+```json
+{
+  "telegram_token": "YOUR_TOKEN",
+  "backend_command": "./llm-sandbox -m openrouter/auto",
+  
+  "message_prefix_overrides": {
+    "/research": {
+      "backend_command": "./llm-sandbox -m openrouter/claude-4.5-sonnet -f /sysdata/RESEARCH.md"
+    },
+    "/code": {
+      "backend_command": "./llm-sandbox -m openrouter/claude-4.5-sonnet -f /sysdata/CODER.md"
+    }
+  }
+}
+```
+
+With this config:
+- `Hello` → uses `openrouter/auto`
+- `/research What causes inflation?` → uses `claude-4.5-sonnet` with RESEARCH.md, message becomes `What causes inflation?`
+- `/code Write a Python sort` → uses `claude-4.5-sonnet` with CODER.md
+
+### How It Works
+
+1. **Base allowlist check**: The message must first pass the base config's allowlists
+2. **Prefix matching**: If the message starts with a configured prefix, check the override
+3. **Override allowlist check**: If the override has allowlists, they determine if the override applies
+4. **Config merging**: Override fields replace base config fields for this request
+5. **Prefix stripping**: By default, the matched prefix is stripped from the message
+
+### Override Allowlist Behavior
+
+Allowlists in overrides work differently than in the base config:
+
+- **Base allowlists**: Determine if the message is processed at all
+- **Override allowlists**: Determine if the override applies; if denied, falls back to base config
+
+This allows you to gate certain commands to specific users/groups while still processing their messages with the default config.
+
+### Available Override Fields
+
+All base config fields except `telegram_token` can be overridden:
+
+| Field | Description |
+|-------|-------------|
+| `backend_command` | Different command for this prefix |
+| `working_directory` | Different working directory |
+| `environment` | Different environment variables (replaces, not merges) |
+| `drop_environment` | Override environment inheritance |
+| `enable_attachments` | Enable/disable attachments for this prefix |
+| `attachment_path` | Different attachment storage path |
+| `attachment_method` | Different attachment method |
+| `attachment_path_chat_prefix` | Different path prefix |
+| `attachment_path_chatid_suffix` | Override chat ID suffix behavior |
+| `aggressive_shell_escape` | Override shell escape mode |
+| `telegram_chat_type_env` | Different env var name |
+| `telegram_chat_id_env` | Different env var name |
+| `backend_timeout_seconds` | Different timeout |
+| `strip_prefix` | Override prefix stripping |
+| `user_allowlist_required` | Restrict this override to specific users |
+| `user_allowlist` | Users allowed to use this override |
+| `group_allowlist_required` | Restrict this override to specific groups |
+| `group_allowlist` | Groups allowed to use this override |
+
+### Example: Premium Features for VIP Users
+
+```json
+{
+  "telegram_token": "YOUR_TOKEN",
+  "backend_command": "./llm-sandbox -m openrouter/auto",
+  "user_allowlist_required": true,
+  "user_allowlist": [111, 222, 333],
+  
+  "message_prefix_overrides": {
+    "/premium": {
+      "backend_command": "./llm-sandbox -m openrouter/claude-4-opus",
+      "backend_timeout_seconds": 600,
+      "user_allowlist_required": true,
+      "user_allowlist": [111]
+    }
+  }
+}
+```
+
+- User 111: `/premium` → claude-4-opus; regular messages → auto
+- User 222: `/premium` → auto (override denied, falls back); regular messages → auto
+- User 444: All messages rejected (not in base allowlist)
+
+### Example: Group-Specific Commands
+
+```json
+{
+  "telegram_token": "YOUR_TOKEN",
+  "backend_command": "./llm-sandbox -m openrouter/auto",
+  "group_allowlist_required": true,
+  "group_allowlist": [-100111, -100222, -100333],
+  
+  "message_prefix_overrides": {
+    "/admin": {
+      "backend_command": "./admin-bot",
+      "group_allowlist_required": true,
+      "group_allowlist": [-100111]
+    }
+  }
+}
+```
+
+- Group -100111: `/admin` → admin-bot
+- Group -100222: `/admin` → auto (override denied for this group)
+- In private DM: `/admin` → admin-bot (group allowlist not checked for private chats)
+
+### Example: Different Backend per Command
+
+```json
+{
+  "telegram_token": "YOUR_TOKEN",
+  "backend_command": "./llm-sandbox -m openrouter/auto",
+  "working_directory": "/home/user/llm-sandbox",
+  "enable_attachments": true,
+  
+  "message_prefix_overrides": {
+    "/image": {
+      "backend_command": "./image-generator",
+      "working_directory": "/home/user/image-gen",
+      "enable_attachments": false
+    },
+    "/translate": {
+      "backend_command": "./translator",
+      "environment": {
+        "TARGET_LANG": "es"
+      }
+    }
+  }
+}
+```
+
+### Example: Keep Prefix in Message
+
+By default, the matched prefix is stripped. To keep it:
+
+```json
+{
+  "message_prefix_overrides": {
+    "/raw": {
+      "backend_command": "./raw-handler",
+      "strip_prefix": false
+    }
+  }
+}
+```
+
+With `strip_prefix: false`, `/raw hello` is passed to the backend as `/raw hello` instead of `hello`.
+
+### Prefix Matching Rules
+
+- **Longest match wins**: `/research` takes precedence over `/re` for `/research topic`
+- **Case-sensitive**: `/Research` and `/research` are different prefixes
+- **Space handling**: One leading space after the prefix is also stripped (if `strip_prefix: true`)
 
 ## How It Works
+
 
 1. User sends a message to the bot (DM or in a group)
 2. Bot checks if the user/group is allowed (if allowlists are enabled)

@@ -15,5 +15,7 @@
   "attachment_path_chatid_suffix": false,
   "telegram_chat_type_env": "",
   "telegram_chat_id_env": "",
-  "backend_timeout_seconds": 180
+  "backend_timeout_seconds": 180,
+  "strip_prefix": true,
+  "message_prefix_overrides": {}
 }

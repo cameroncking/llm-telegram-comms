@@ -19,15 +19,13 @@ import (
 )
 
 type Bot struct {
-	cfg     *config.Config
-	backend *backend.Backend
-	bot     *bot.Bot
+	cfg *config.Config
+	bot *bot.Bot
 }
 
 func New(cfg *config.Config) (*Bot, error) {
 	b := &Bot{
-		cfg:     cfg,
-		backend: backend.New(cfg),
+		cfg: cfg,
 	}
 
 	opts := []bot.Option{
@@ -56,21 +54,19 @@ func (b *Bot) handleMessage(ctx context.Context, tgBot *bot.Bot, update *models.
 	msg := update.Message
 	chatID := msg.Chat.ID
 	userID := msg.From.ID
+	chatType := msg.Chat.Type
 
-	// Check permissions
+	// Check base permissions first
 	if !b.isAllowed(msg) {
 		log.Printf("Rejected message from user %d in chat %d", userID, chatID)
 		return
 	}
 
-	// Handle attachments if enabled
-	var savedAttachments []string
-	if b.cfg.EnableAttachments {
-		savedAttachments = b.handleAttachments(ctx, tgBot, msg, chatID)
-	}
-
-	if msg.Text == "" && msg.Caption == "" && len(savedAttachments) == 0 {
-		return
+	if msg.Text == "" && msg.Caption == "" {
+		// Check if there are attachments before returning
+		if !b.hasAttachments(msg) {
+			return
+		}
 	}
 
 	// Use caption if text is empty (for messages with attachments)
@@ -79,10 +75,29 @@ func (b *Bot) handleMessage(ctx context.Context, tgBot *bot.Bot, update *models.
 		msgText = msg.Caption
 	}
 
+	// Resolve effective config based on message prefix
+	matchResult := b.cfg.MatchPrefixOverride(msgText, userID, chatID, string(chatType))
+	effectiveCfg := matchResult.EffectiveConfig
+	msgText = matchResult.StrippedText
+
+	if matchResult.Prefix != "" {
+		log.Printf("Matched prefix %q for user %d in chat %d", matchResult.Prefix, userID, chatID)
+	}
+
+	// Handle attachments if enabled (using effective config)
+	var savedAttachments []string
+	if effectiveCfg.EnableAttachments {
+		savedAttachments = b.handleAttachments(ctx, tgBot, msg, chatID, effectiveCfg)
+	}
+
+	if msgText == "" && len(savedAttachments) == 0 {
+		return
+	}
+
 	// Prepend attachment info based on attachment_method
-	if b.cfg.EnableAttachments && len(savedAttachments) > 0 {
+	if effectiveCfg.EnableAttachments && len(savedAttachments) > 0 {
 		var prefix string
-		method := b.cfg.AttachmentMethod
+		method := effectiveCfg.AttachmentMethod
 		if method == "" {
 			method = "xml"
 		}
@@ -90,12 +105,12 @@ func (b *Bot) handleMessage(ctx context.Context, tgBot *bot.Bot, update *models.
 		switch method {
 		case "xml":
 			for _, filename := range savedAttachments {
-				path := b.cfg.AttachmentPathChatPrefix + filename
+				path := effectiveCfg.AttachmentPathChatPrefix + filename
 				prefix += fmt.Sprintf("<attachment>%s</attachment>\n", path)
 			}
 		case "plaintext":
 			for _, filename := range savedAttachments {
-				path := b.cfg.AttachmentPathChatPrefix + filename
+				path := effectiveCfg.AttachmentPathChatPrefix + filename
 				prefix += fmt.Sprintf("Attachment: %s\n", path)
 			}
 		}
@@ -112,9 +127,9 @@ func (b *Bot) handleMessage(ctx context.Context, tgBot *bot.Bot, update *models.
 
 	// Build extra args for datasette_llm method
 	var extraArgs []string
-	if b.cfg.EnableAttachments && b.cfg.AttachmentMethod == "datasette_llm" && len(savedAttachments) > 0 {
+	if effectiveCfg.EnableAttachments && effectiveCfg.AttachmentMethod == "datasette_llm" && len(savedAttachments) > 0 {
 		for _, filename := range savedAttachments {
-			path := b.cfg.AttachmentPathChatPrefix + filename
+			path := effectiveCfg.AttachmentPathChatPrefix + filename
 			extraArgs = append(extraArgs, "-a", path)
 		}
 	}
@@ -123,13 +138,14 @@ func (b *Bot) handleMessage(ctx context.Context, tgBot *bot.Bot, update *models.
 	execOpts := &backend.ExecOptions{
 		ChatID: chatID,
 	}
-	if msg.Chat.Type == "private" {
+	if chatType == "private" {
 		execOpts.ChatType = "user"
 	} else {
 		execOpts.ChatType = "group"
 	}
 
-	response, err := b.backend.Execute(ctx, msgText, execOpts, extraArgs...)
+	// Execute backend with effective config
+	response, err := backend.Execute(ctx, msgText, effectiveCfg, execOpts, extraArgs...)
 	elapsed := time.Since(startTime)
 
 	if err != nil {
@@ -151,7 +167,7 @@ func (b *Bot) handleMessage(ctx context.Context, tgBot *bot.Bot, update *models.
 	}
 
 	// Only use reply in group chats, not in private 1:1 chats
-	if msg.Chat.Type == "group" || msg.Chat.Type == "supergroup" {
+	if chatType == "group" || chatType == "supergroup" {
 		sendParams.ReplyParameters = &models.ReplyParameters{
 			MessageID: msg.ID,
 		}
@@ -183,6 +199,16 @@ func (b *Bot) isAllowed(msg *models.Message) bool {
 	return true
 }
 
+func (b *Bot) hasAttachments(msg *models.Message) bool {
+	return len(msg.Photo) > 0 ||
+		msg.Document != nil ||
+		msg.Audio != nil ||
+		msg.Video != nil ||
+		msg.Voice != nil ||
+		msg.VideoNote != nil ||
+		msg.Sticker != nil
+}
+
 func truncate(s string, maxLen int) string {
 	if len(s) <= maxLen {
 		return s
@@ -200,7 +226,7 @@ func (b *Bot) sendTypingAction(ctx context.Context, tgBot *bot.Bot, chatID int64
 	}
 }
 
-func (b *Bot) handleAttachments(ctx context.Context, tgBot *bot.Bot, msg *models.Message, chatID int64) []string {
+func (b *Bot) handleAttachments(ctx context.Context, tgBot *bot.Bot, msg *models.Message, chatID int64, cfg *config.Config) []string {
 	var savedFiles []string
 	var fileIDs []struct {
 		fileID   string
@@ -283,7 +309,7 @@ func (b *Bot) handleAttachments(ctx context.Context, tgBot *bot.Bot, msg *models
 	}
 
 	for _, f := range fileIDs {
-		savedName, err := b.downloadFile(ctx, tgBot, f.fileID, f.fileName, chatID)
+		savedName, err := b.downloadFile(ctx, tgBot, f.fileID, f.fileName, chatID, cfg)
 		if err != nil {
 			log.Printf("Failed to download attachment %s: %v", f.fileName, err)
 		} else {
@@ -294,7 +320,7 @@ func (b *Bot) handleAttachments(ctx context.Context, tgBot *bot.Bot, msg *models
 	return savedFiles
 }
 
-func (b *Bot) downloadFile(ctx context.Context, tgBot *bot.Bot, fileID, originalName string, chatID int64) (string, error) {
+func (b *Bot) downloadFile(ctx context.Context, tgBot *bot.Bot, fileID, originalName string, chatID int64, cfg *config.Config) (string, error) {
 	file, err := tgBot.GetFile(ctx, &bot.GetFileParams{FileID: fileID})
 	if err != nil {
 		return "", fmt.Errorf("getting file info: %w", err)
@@ -324,7 +350,7 @@ func (b *Bot) downloadFile(ctx context.Context, tgBot *bot.Bot, fileID, original
 
 	// Generate filename with timestamp
 	timestamp := time.Now().UTC().Format("2006-01-02T15-04-05Z")
-	
+
 	// Use original filename from file path if available and originalName is generic
 	fileName := originalName
 	if pathName := filepath.Base(file.FilePath); pathName != "" && !strings.HasPrefix(originalName, "photo") && !strings.HasPrefix(originalName, "video_note") && !strings.HasPrefix(originalName, "voice") && !strings.HasPrefix(originalName, "sticker") {
@@ -344,14 +370,14 @@ func (b *Bot) downloadFile(ctx context.Context, tgBot *bot.Bot, fileID, original
 
 	destName := fmt.Sprintf("%s_%s", timestamp, fileName)
 
-	// Determine attachment path
-	attachmentDir := b.cfg.AttachmentPath
+	// Determine attachment path (using effective config)
+	attachmentDir := cfg.AttachmentPath
 	if attachmentDir == "" {
 		attachmentDir = "."
 	}
 
 	// Add chat ID suffix if configured
-	if b.cfg.AttachmentPathChatIDSuffix {
+	if cfg.AttachmentPathChatIDSuffix {
 		attachmentDir = filepath.Join(attachmentDir, fmt.Sprintf("%d", chatID))
 		// Create the directory if it doesn't exist
 		if err := os.MkdirAll(attachmentDir, 0755); err != nil {

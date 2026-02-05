@@ -1,0 +1,38 @@
+{
+  "telegram_token": "YOUR_BOT_TOKEN_FROM_BOTFATHER",
+  "backend_command": "./llm-sandbox -m openrouter/auto -d /userdata/log.db -c",
+  "working_directory": "/home/user/llm-sandbox",
+  "user_allowlist_required": true,
+  "user_allowlist": [123456789, 987654321],
+  "group_allowlist_required": true,
+  "group_allowlist": [-100111222333],
+  "environment": {
+    "SANDBOX_USERDATA": "/home/user/userdata",
+    "SANDBOX_SYSDATA": "/home/user/sysdata"
+  },
+  "drop_environment": true,
+  "enable_attachments": true,
+  "attachment_path": "/home/user/userdata",
+  "attachment_method": "datasette_llm",
+  "attachment_path_chat_prefix": "/userdata/",
+  "attachment_path_chatid_suffix": true,
+  "telegram_chat_type_env": "CHAT_TYPE",
+  "telegram_chat_id_env": "SANDBOX_USERDATA_SUFFIX",
+  "backend_timeout_seconds": 180,
+  "strip_prefix": true,
+  "message_prefix_overrides": {
+    "/research": {
+      "backend_command": "./llm-sandbox -m openrouter/claude-4.5-sonnet -d /userdata/log.db -f /sysdata/RESEARCH.md -c",
+      "backend_timeout_seconds": 300
+    },
+    "/code": {
+      "backend_command": "./llm-sandbox -m openrouter/claude-4.5-sonnet -d /userdata/log.db -f /sysdata/CODER.md -c"
+    },
+    "/premium": {
+      "backend_command": "./llm-sandbox -m openrouter/claude-4-opus -d /userdata/log.db -c",
+      "backend_timeout_seconds": 600,
+      "user_allowlist_required": true,
+      "user_allowlist": [123456789]
+    }
+  }
+}

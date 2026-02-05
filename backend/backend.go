@@ -12,31 +12,24 @@ import (
 	"github.com/exedev/llm-telegram-comms/config"
 )
 
-type Backend struct {
-	cfg *config.Config
-}
-
-func New(cfg *config.Config) *Backend {
-	return &Backend{cfg: cfg}
-}
-
 type ExecOptions struct {
 	ChatType string // "user" or "group"
 	ChatID   int64
 }
 
-func (b *Backend) Execute(ctx context.Context, input string, opts *ExecOptions, extraArgs ...string) (string, error) {
+// Execute runs the backend command with the given input and config.
+func Execute(ctx context.Context, input string, cfg *config.Config, opts *ExecOptions, extraArgs ...string) (string, error) {
 	// Apply timeout to the context
-	timeoutSecs := b.cfg.GetBackendTimeout()
+	timeoutSecs := cfg.GetBackendTimeout()
 	if timeoutSecs > 0 {
 		var cancel context.CancelFunc
 		ctx, cancel = context.WithTimeout(ctx, time.Duration(timeoutSecs)*time.Second)
 		defer cancel()
 	}
 
-	command := b.cfg.BackendCommand
+	command := cfg.BackendCommand
 	if len(extraArgs) > 0 {
-		aggressive := b.cfg.IsAggressiveShellEscape()
+		aggressive := cfg.IsAggressiveShellEscape()
 		for _, arg := range extraArgs {
 			if aggressive {
 				command += " " + aggressiveShellEscape(arg)
@@ -47,11 +40,11 @@ func (b *Backend) Execute(ctx context.Context, input string, opts *ExecOptions, 
 	}
 	cmd := exec.CommandContext(ctx, "sh", "-c", command)
 
-	if b.cfg.WorkingDirectory != "" {
-		cmd.Dir = b.cfg.WorkingDirectory
+	if cfg.WorkingDirectory != "" {
+		cmd.Dir = cfg.WorkingDirectory
 	}
 
-	cmd.Env = b.buildEnv(opts)
+	cmd.Env = buildEnv(cfg, opts)
 	cmd.Stdin = strings.NewReader(input)
 
 	var stdout, stderr bytes.Buffer
@@ -62,7 +55,7 @@ func (b *Backend) Execute(ctx context.Context, input string, opts *ExecOptions, 
 	if err != nil {
 		// Check if it was a timeout
 		if ctx.Err() == context.DeadlineExceeded {
-			return "", fmt.Errorf("command timed out after %d seconds", b.cfg.GetBackendTimeout())
+			return "", fmt.Errorf("command timed out after %d seconds", cfg.GetBackendTimeout())
 		}
 		if stderr.Len() > 0 {
 			return "", fmt.Errorf("command failed: %w\nstderr: %s", err, stderr.String())
@@ -81,7 +74,7 @@ func shellEscape(s string) string {
 
 func aggressiveShellEscape(s string) string {
 	// Aggressive shell escaping: only allow known safe printable characters
-	// Safe characters: a-z A-Z 0-9 . _ - / 
+	// Safe characters: a-z A-Z 0-9 . _ - /
 	// Unsafe characters are replaced with _
 	var result strings.Builder
 	for _, r := range s {
@@ -97,23 +90,23 @@ func aggressiveShellEscape(s string) string {
 	return "'" + result.String() + "'"
 }
 
-func (b *Backend) buildEnv(opts *ExecOptions) []string {
+func buildEnv(cfg *config.Config, opts *ExecOptions) []string {
 	var env []string
 
-	if !b.cfg.DropEnvironment {
+	if !cfg.DropEnvironment {
 		env = os.Environ()
 	}
 
-	for k, v := range b.cfg.Environment {
+	for k, v := range cfg.Environment {
 		env = append(env, fmt.Sprintf("%s=%s", k, v))
 	}
 
 	if opts != nil {
-		if b.cfg.TelegramChatTypeEnv != "" && opts.ChatType != "" {
-			env = append(env, fmt.Sprintf("%s=%s", b.cfg.TelegramChatTypeEnv, opts.ChatType))
+		if cfg.TelegramChatTypeEnv != "" && opts.ChatType != "" {
+			env = append(env, fmt.Sprintf("%s=%s", cfg.TelegramChatTypeEnv, opts.ChatType))
 		}
-		if b.cfg.TelegramChatIDEnv != "" && opts.ChatID != 0 {
-			env = append(env, fmt.Sprintf("%s=%d", b.cfg.TelegramChatIDEnv, opts.ChatID))
+		if cfg.TelegramChatIDEnv != "" && opts.ChatID != 0 {
+			env = append(env, fmt.Sprintf("%s=%d", cfg.TelegramChatIDEnv, opts.ChatID))
 		}
 	}
 

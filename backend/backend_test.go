@@ -17,11 +17,11 @@ var aggressiveShellEscapeTest = aggressiveShellEscape
 
 func TestExecute(t *testing.T) {
 	tests := []struct {
-		name        string
-		cfg         *config.Config
-		input       string
-		wantOutput  string
-		wantErr     bool
+		name       string
+		cfg        *config.Config
+		input      string
+		wantOutput string
+		wantErr    bool
 	}{
 		{
 			name: "echo command",
@@ -53,10 +53,9 @@ func TestExecute(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			b := New(tt.cfg)
 			ctx := context.Background()
 
-			output, err := b.Execute(ctx, tt.input, nil)
+			output, err := Execute(ctx, tt.input, tt.cfg, nil)
 			if tt.wantErr {
 				if err == nil {
 					t.Error("expected error, got nil")
@@ -85,8 +84,7 @@ func TestExecuteWithWorkingDirectory(t *testing.T) {
 		WorkingDirectory: tmpDir,
 	}
 
-	b := New(cfg)
-	output, err := b.Execute(context.Background(), "", nil)
+	output, err := Execute(context.Background(), "", cfg, nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -104,8 +102,7 @@ func TestExecuteWithEnvironment(t *testing.T) {
 		},
 	}
 
-	b := New(cfg)
-	output, err := b.Execute(context.Background(), "", nil)
+	output, err := Execute(context.Background(), "", cfg, nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -128,8 +125,7 @@ func TestExecuteDropEnvironment(t *testing.T) {
 		},
 	}
 
-	b := New(cfg)
-	output, err := b.Execute(context.Background(), "", nil)
+	output, err := Execute(context.Background(), "", cfg, nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -148,11 +144,10 @@ func TestExecuteContextCancellation(t *testing.T) {
 		BackendCommand: "sleep 10",
 	}
 
-	b := New(cfg)
 	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
 	defer cancel()
 
-	_, err := b.Execute(ctx, "", nil)
+	_, err := Execute(ctx, "", cfg, nil)
 	if err == nil {
 		t.Error("expected error due to context cancellation")
 	}
@@ -163,8 +158,7 @@ func TestExecuteWithExtraArgs(t *testing.T) {
 		BackendCommand: "echo",
 	}
 
-	b := New(cfg)
-	output, err := b.Execute(context.Background(), "", nil, "-a", "file1.png", "-a", "file2.png")
+	output, err := Execute(context.Background(), "", cfg, nil, "-a", "file1.png", "-a", "file2.png")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -267,8 +261,7 @@ func TestShellEscapeExecution(t *testing.T) {
 				AggressiveShellEscape: &aggressive,
 			}
 
-			b := New(cfg)
-			output, err := b.Execute(context.Background(), "", nil, tt.filename)
+			output, err := Execute(context.Background(), "", cfg, nil, tt.filename)
 			if err != nil {
 				t.Fatalf("unexpected error: %v", err)
 			}
@@ -307,8 +300,7 @@ func TestShellEscapePreventInjection(t *testing.T) {
 				AggressiveShellEscape: &aggressive,
 			}
 
-			b := New(cfg)
-			_, err := b.Execute(context.Background(), "", nil, "-a", name)
+			_, err := Execute(context.Background(), "", cfg, nil, "-a", name)
 			if err != nil {
 				// Error is acceptable, injection is not
 			}
@@ -409,8 +401,7 @@ func TestAggressiveShellEscapePreventInjection(t *testing.T) {
 				BackendCommand: "echo test",
 			}
 
-			b := New(cfg)
-			_, err := b.Execute(context.Background(), "", nil, "-a", name)
+			_, err := Execute(context.Background(), "", cfg, nil, "-a", name)
 			if err != nil {
 				// Error is acceptable, injection is not
 			}
@@ -454,10 +445,8 @@ func TestExecuteWithChatTypeEnv(t *testing.T) {
 		TelegramChatTypeEnv: "CHAT_TYPE",
 	}
 
-	b := New(cfg)
-
 	// Test user chat type
-	output, err := b.Execute(context.Background(), "", &ExecOptions{ChatType: "user", ChatID: 123})
+	output, err := Execute(context.Background(), "", cfg, &ExecOptions{ChatType: "user", ChatID: 123})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -466,7 +455,7 @@ func TestExecuteWithChatTypeEnv(t *testing.T) {
 	}
 
 	// Test group chat type
-	output, err = b.Execute(context.Background(), "", &ExecOptions{ChatType: "group", ChatID: -100123})
+	output, err = Execute(context.Background(), "", cfg, &ExecOptions{ChatType: "group", ChatID: -100123})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -481,10 +470,8 @@ func TestExecuteWithChatIDEnv(t *testing.T) {
 		TelegramChatIDEnv: "CHAT_ID",
 	}
 
-	b := New(cfg)
-
 	// Test positive ID (user)
-	output, err := b.Execute(context.Background(), "", &ExecOptions{ChatType: "user", ChatID: 123456789})
+	output, err := Execute(context.Background(), "", cfg, &ExecOptions{ChatType: "user", ChatID: 123456789})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -493,7 +480,7 @@ func TestExecuteWithChatIDEnv(t *testing.T) {
 	}
 
 	// Test negative ID (group)
-	output, err = b.Execute(context.Background(), "", &ExecOptions{ChatType: "group", ChatID: -100123456789})
+	output, err = Execute(context.Background(), "", cfg, &ExecOptions{ChatType: "group", ChatID: -100123456789})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -509,9 +496,7 @@ func TestExecuteWithBothChatEnvVars(t *testing.T) {
 		TelegramChatIDEnv:   "CHAT_ID",
 	}
 
-	b := New(cfg)
-
-	output, err := b.Execute(context.Background(), "", &ExecOptions{ChatType: "user", ChatID: 12345})
+	output, err := Execute(context.Background(), "", cfg, &ExecOptions{ChatType: "user", ChatID: 12345})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -527,9 +512,7 @@ func TestExecuteWithChatEnvVarsNotSet(t *testing.T) {
 		// TelegramChatTypeEnv and TelegramChatIDEnv not set
 	}
 
-	b := New(cfg)
-
-	output, err := b.Execute(context.Background(), "", &ExecOptions{ChatType: "user", ChatID: 12345})
+	output, err := Execute(context.Background(), "", cfg, &ExecOptions{ChatType: "user", ChatID: 12345})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -546,10 +529,8 @@ func TestExecuteWithNilExecOptions(t *testing.T) {
 		TelegramChatIDEnv:   "CHAT_ID",
 	}
 
-	b := New(cfg)
-
 	// With nil opts, env vars should not be set
-	output, err := b.Execute(context.Background(), "", nil)
+	output, err := Execute(context.Background(), "", cfg, nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
