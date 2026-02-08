@@ -119,8 +119,9 @@ func (b *Bot) handleMessage(ctx context.Context, tgBot *bot.Bot, update *models.
 
 	log.Printf("Processing message from user %d in chat %d: %s", userID, chatID, truncate(msgText, 50))
 
-	// Send typing indicator
-	b.sendTypingAction(ctx, tgBot, chatID)
+	// Start continuous typing indicator
+	stopTyping := b.startTypingIndicator(ctx, tgBot, chatID)
+	defer stopTyping()
 
 	// Start time for logging
 	startTime := time.Now()
@@ -214,6 +215,37 @@ func truncate(s string, maxLen int) string {
 		return s
 	}
 	return s[:maxLen] + "..."
+}
+
+// startTypingIndicator begins sending typing actions periodically and returns a stop function.
+// Telegram typing indicators expire after ~5 seconds, so we send them every 4 seconds.
+func (b *Bot) startTypingIndicator(ctx context.Context, tgBot *bot.Bot, chatID int64) func() {
+	// Send initial typing action immediately
+	b.sendTypingAction(ctx, tgBot, chatID)
+
+	// Create a done channel to signal stop
+	done := make(chan struct{})
+
+	go func() {
+		ticker := time.NewTicker(4 * time.Second)
+		defer ticker.Stop()
+
+		for {
+			select {
+			case <-done:
+				return
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				b.sendTypingAction(ctx, tgBot, chatID)
+			}
+		}
+	}()
+
+	// Return stop function
+	return func() {
+		close(done)
+	}
 }
 
 func (b *Bot) sendTypingAction(ctx context.Context, tgBot *bot.Bot, chatID int64) {

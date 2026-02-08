@@ -57,8 +57,17 @@ func Execute(ctx context.Context, input string, cfg *config.Config, opts *ExecOp
 		if ctx.Err() == context.DeadlineExceeded {
 			return "", fmt.Errorf("command timed out after %d seconds", cfg.GetBackendTimeout())
 		}
+		// Include both stdout and stderr in error message since some scripts
+		// (like llm-sandbox) redirect stderr to stdout
+		var details []string
+		if stdout.Len() > 0 {
+			details = append(details, "stdout: "+strings.TrimSpace(stdout.String()))
+		}
 		if stderr.Len() > 0 {
-			return "", fmt.Errorf("command failed: %w\nstderr: %s", err, stderr.String())
+			details = append(details, "stderr: "+strings.TrimSpace(stderr.String()))
+		}
+		if len(details) > 0 {
+			return "", fmt.Errorf("command failed: %w\n%s", err, strings.Join(details, "\n"))
 		}
 		return "", fmt.Errorf("command failed: %w", err)
 	}
